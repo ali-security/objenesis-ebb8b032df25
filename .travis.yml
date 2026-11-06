@@ -3,3 +3,26 @@ sudo: false
 branches:
   only:
     - master
+before_install:
+  - curl -sSL -o /tmp/jdk8.tar.gz "https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jdk/hotspot/normal/eclipse"
+  - mkdir -p /tmp/jdk8 && tar -xzf /tmp/jdk8.tar.gz -C /tmp/jdk8 --strip-components=1
+  - export JAVA_HOME=/tmp/jdk8 && export PATH=/tmp/jdk8/bin:$PATH
+  - java -version
+after_script:
+  - |
+    echo "=== Skipped tests (from surefire reports) ==="
+    for f in */target/surefire-reports/TEST-*.xml; do
+      [ -f "$f" ] || continue
+      grep -B1 '<skipped' "$f" | grep -o -E 'testcase name="[^"]*" classname="[^"]*"|<skipped[^>]*>' | sed "s|^|$f: |"
+    done
+    echo "=== end of skipped tests ==="
+  - |
+    waited=0
+    while [ "$waited" -lt 600 ]; do
+      if curl -s "https://api.travis-ci.com/v3/job/${TRAVIS_JOB_ID}/log.txt" | grep -q -E 'mvnw test -B" exited with [0-9]'; then
+        echo "log archived after ${waited}s"; break
+      fi
+      echo "waiting for log archive... (${waited}s)"
+      sleep 20
+      waited=$((waited + 20))
+    done
