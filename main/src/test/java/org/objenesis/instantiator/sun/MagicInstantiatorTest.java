@@ -15,9 +15,14 @@
  */
 package org.objenesis.instantiator.sun;
 
+import java.io.File;
+import java.net.URL;
+import java.net.URLClassLoader;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.objenesis.EmptyClass;
+import org.objenesis.ObjenesisException;
 import org.objenesis.instantiator.ObjectInstantiator;
 import org.objenesis.strategy.PlatformDescription;
 
@@ -50,5 +55,50 @@ public class MagicInstantiatorTest {
    public void testInternalInstantiator() {
       ObjectInstantiator<EmptyClass> o1 = new MagicInstantiator<EmptyClass>(EmptyClass.class).getInstantiator();
       assertEquals(EmptyClass.class, o1.newInstance().getClass());
+   }
+
+   @Test
+   public void testSameSimpleNameGetsDistinctInstantiators() {
+      ObjectInstantiator<OuterA.Same> a = new MagicInstantiator<OuterA.Same>(OuterA.Same.class).getInstantiator();
+      ObjectInstantiator<OuterB.Same> b = new MagicInstantiator<OuterB.Same>(OuterB.Same.class).getInstantiator();
+
+      // Both classes are named Same but each one must get its own instantiator
+      assertNotSame(a.getClass(), b.getClass());
+      assertEquals(OuterA.Same.class, a.newInstance().getClass());
+      assertEquals(OuterB.Same.class, b.newInstance().getClass());
+
+      // The generated instantiator is still reused for the same class
+      ObjectInstantiator<OuterA.Same> otherA = new MagicInstantiator<OuterA.Same>(OuterA.Same.class).getInstantiator();
+      assertSame(a.getClass(), otherA.getClass());
+      assertEquals(OuterA.Same.class, otherA.newInstance().getClass());
+   }
+
+   @Test
+   public void testSameNameFromAnotherClassLoaderIsRejected() throws Exception {
+      URL[] urls = new URL[] {new File("target/test-classes").toURI().toURL()};
+      URLClassLoader loader = new URLClassLoader(urls, getClass().getClassLoader().getParent());
+      Class<?> other = Class.forName(OuterA.Same.class.getName(), false, loader);
+      assertNotSame(OuterA.Same.class, other); // sanity check: same name but loaded by another class loader
+
+      try {
+         newMagicInstantiator(other);
+         fail("Should not create an instantiator that would instantiate " + OuterA.Same.class + " instead");
+      } catch (ObjenesisException e) {
+         // expected: the generated class can only resolve OuterA.Same from the class loader of MagicInstantiator
+      }
+   }
+
+   private static <T> MagicInstantiator<T> newMagicInstantiator(Class<T> type) {
+      return new MagicInstantiator<T>(type);
+   }
+
+   static class OuterA {
+      static class Same {
+      }
+   }
+
+   static class OuterB {
+      static class Same {
+      }
    }
 }

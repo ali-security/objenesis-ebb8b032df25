@@ -91,12 +91,35 @@ public class ObjenesisBase implements Objenesis {
       }
       ObjectInstantiator<?> instantiator = cache.get(clazz.getName());
       if(instantiator == null) {
-         ObjectInstantiator<?> newInstantiator = strategy.newInstantiatorOf(clazz);
+         ObjectInstantiator<?> newInstantiator = new CachedInstantiator<T>(clazz, strategy.newInstantiatorOf(clazz));
          instantiator = cache.putIfAbsent(clazz.getName(), newInstantiator);
          if(instantiator == null) {
             instantiator = newInstantiator;
          }
       }
+      if(instantiator instanceof CachedInstantiator) {
+         CachedInstantiator<?> cached = (CachedInstantiator<?>) instantiator;
+         if(cached.type != clazz) {
+            // A same-named class from another class loader owns this entry
+            return strategy.newInstantiatorOf(clazz);
+         }
+         instantiator = cached.delegate;
+      }
       return (ObjectInstantiator<T>) instantiator;
+   }
+
+   /** Cache entry remembering the exact class it was created for */
+   private static final class CachedInstantiator<T> implements ObjectInstantiator<T> {
+      final Class<?> type;
+      final ObjectInstantiator<T> delegate;
+
+      CachedInstantiator(Class<?> type, ObjectInstantiator<T> delegate) {
+         this.type = type;
+         this.delegate = delegate;
+      }
+
+      public T newInstance() {
+         return delegate.newInstance();
+      }
    }
 }

@@ -88,7 +88,7 @@ public class MagicInstantiator<T> implements ObjectInstantiator<T> {
    }
 
    private <T> ObjectInstantiator<T> newInstantiatorOf(Class<T> type) {
-      String suffix = type.getSimpleName();
+      String suffix = toClassNameSuffix(type.getName());
       String className = getClass().getName() + "$$$" + suffix;
 
       Class<ObjectInstantiator<T>> clazz = getExistingClass(getClass().getClassLoader(), className);
@@ -103,12 +103,61 @@ public class MagicInstantiator<T> implements ObjectInstantiator<T> {
          }
       }
 
+      // The generated class instantiates the type resolved by name through its own class loader. Only use it
+      // if that name resolves to the requested class and not to a same-named class from another class loader
+      if(!isResolvedBy(type, clazz.getClassLoader())) {
+         throw new ObjenesisException(type + " is not the class resolved by " + clazz.getName() + "'s class loader");
+      }
+
       try {
          return clazz.newInstance();
       } catch (InstantiationException e) {
          throw new ObjenesisException(e);
       } catch (IllegalAccessException e) {
          throw new ObjenesisException(e);
+      }
+   }
+
+   /**
+    * Encode the full binary name of a class into a string that can be used in a class name. The encoding is
+    * injective ('.' becomes "_0", '_' becomes "_1" and any other character not allowed in an identifier is
+    * escaped) so two different binary names never get the same generated instantiator class.
+    *
+    * @param binaryName full binary name of the class to instantiate
+    * @return the suffix to use for the generated instantiator class
+    */
+   private static String toClassNameSuffix(String binaryName) {
+      StringBuilder suffix = new StringBuilder(binaryName.length() + 16);
+      for(int i = 0; i < binaryName.length(); i++) {
+         char c = binaryName.charAt(i);
+         if(c == '.') {
+            suffix.append("_0");
+         }
+         else if(c == '_') {
+            suffix.append("_1");
+         }
+         else if(Character.isJavaIdentifierPart(c)) {
+            suffix.append(c);
+         }
+         else {
+            suffix.append("_2").append(String.format("%04x", Integer.valueOf(c)));
+         }
+      }
+      return suffix.toString();
+   }
+
+   /**
+    * Tell if the class loader resolves the name of the type to this exact type.
+    *
+    * @param type type to instantiate
+    * @param classLoader class loader used to resolve the name of the type
+    * @return true if the name of the type resolves to the type itself
+    */
+   private static boolean isResolvedBy(Class<?> type, ClassLoader classLoader) {
+      try {
+         return Class.forName(type.getName(), false, classLoader) == type;
+      } catch (ClassNotFoundException e) {
+         return false;
       }
    }
 
